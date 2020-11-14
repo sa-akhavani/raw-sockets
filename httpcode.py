@@ -1,10 +1,109 @@
 import sys
 import socket
 import re
+from enum import Enum
 
 HTTP_STATUS_CODES = {
     200: '200 OK'
 }
+
+
+class ParseState(Enum):
+    RDNEW = 1
+    RDSIZE = 2
+    RDCHUNK = 3
+
+
+class HTTPResponse:
+    # class variable
+    parsestate = ParseState.RDNEW
+
+    # instance variables
+    version = None
+    status = None
+    headers = None
+    body = ''
+    ischunked = False
+
+    def __extractversionstatus(self, line):
+        """Extracts the HTTP version and status code"""
+        spl = line.split(' ')
+        self.version = float(spl[0].split('/')[1])
+        self.status = int(spl[1])
+
+    def __extractheaders(self, lines):
+        self.headers = dict()
+        bodystart = 1
+
+        for line in lines:
+            bodystart += 1
+
+            if line == '':
+                break
+
+            spl = line.split(': ')
+            self.headers[spl[0]] = spl[1]
+
+        # handle chunked encoding
+        if 'Transfer-Encoding' in self.headers and self.headers['Transfer-Encoding'] == 'chunked':
+            self.ischunked = True
+
+        return bodystart
+
+    def __extractbody(self, lines):
+        if len(lines) == 0:
+            self.body = ''
+            return
+
+        self.body = lines[0]
+
+        for i in range(1, len(lines)):
+            line = lines[i]
+
+            self.body += '\r\n'
+            self.body += line
+
+    def __bodyfsm(self, lines):
+        for i in range(len(lines)):
+            if HTTPResponse.parsestate == ParseState.RDSIZE:
+                if int(lines[i], 16) == 0:
+                    # terminating chunk, we're done
+                    HTTPResponse.parsestate = ParseState.RDNEW
+                    return
+
+                # otherwise, skip the size, start reading the chunk
+                HTTPResponse.parsestate = ParseState.RDCHUNK
+
+            elif HTTPResponse.parsestate == ParseState.RDCHUNK:
+                self.body += lines[i]
+
+                # if chunk was followed by a CRLF and isn't the last line in the body, then it's followed by a size
+                # if it is the last line in the body, then there will be another
+                if i != len(lines) - 1:
+                    HTTPResponse.parsestate = ParseState.RDSIZE
+
+    def __init__(self, slz):
+        """
+        :param slz: bytes
+        """
+        slz = slz.decode('utf-8')
+        lines = slz.split('\r\n')
+
+        if HTTPResponse.parsestate == ParseState.RDNEW:
+            # extract code from first line
+            self.__extractversionstatus(lines[0])
+
+            # extract headers then the body
+            bodystart = self.__extractheaders(lines[1:])
+
+            if not self.ischunked:
+                self.__extractbody(lines[bodystart:])
+            else:
+                HTTPResponse.parsestate = ParseState.RDSIZE
+                self.__bodyfsm(lines[bodystart:])
+        else:
+            self.__bodyfsm(lines)
+
 
 # Extract body from the server response string
 def extract_response_body(response):
@@ -33,6 +132,7 @@ def extract_headers(response):
 
     return headers
 
+
 # Extract cookies from the server response string
 def extract_cookies(headers):
     out = dict()
@@ -45,13 +145,15 @@ def extract_cookies(headers):
 
     return out
 
-# Extract http status code from the server response string
+# Extrac
+# t http status code from the server response string
 def extract_http_status_code(headers):
     if HTTP_STATUS_CODES.get(200) in headers[0]:
         return 200
     else:
         print('Unknown Status Code Received: ', headers[0])
         return 500
+
 
 # High level function for parsing the received response from the server
 def parse_response(response):

@@ -1,6 +1,7 @@
 import socket
 import sys
 from urllib.parse import urlparse
+import urllib.request
 
 '''
 Your program does not need to support HTTPS. 
@@ -17,11 +18,25 @@ def spliturl(url):
     parsed = urlparse(url)
     domain = parsed.netloc
     path = parsed.path
-
-    if path == '' or path[-1] == '/':
-        path = '/index.html'
-
     return domain, path
+
+
+def filenamefromurl(url):
+    if url == '' or url[-1] == '/':
+        return 'index.html'
+
+    spl = url.split('/')
+    return spl[-1]
+
+
+def dnslookup(url):
+    domain, _ = spliturl(url)
+    return socket.gethostbyname(domain)
+
+
+def getlocalip():
+    external_ip = urllib.request.urlopen('https://ident.me').read().decode('utf8')
+    return external_ip
 
 
 if __name__ == '__main__':
@@ -29,15 +44,15 @@ if __name__ == '__main__':
         sys.exit('please provide a url')
 
     url = sys.argv[1]
-    domain, path = spliturl(url)
 
+    domain, path = spliturl(url)
     print('domain:', domain)
     print('path:', path)
+    print('filename from full url:', filenamefromurl(url))
+    print('filename from path:', filenamefromurl(path))
 
-    addr = socket.gethostbyname(domain)
-    print('address of host:', addr)
+    remote_addr = dnslookup(url)
+    print('address of remote server:', remote_addr)
 
-    hostname = socket.getfqdn()
-    local_ip = socket.gethostbyname(hostname)
-    print('local hostname:', hostname)
-    print('local IP:', local_ip)
+    local_ip = getlocalip()
+    print('local IP addr:', local_ip)
