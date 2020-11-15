@@ -39,20 +39,32 @@ def getlocalip():
     return external_ip
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        sys.exit('please provide a url')
+def checksum16(bytevec):
+    """
+    Computer a checksum for the given byte array. The checksum is the one's complement of the one's complement addition
+    of all 16-bit words in the given bytearray. If the given array has an odd number of octets, then the array is
+    right-padded with 0x00.
+    """
+    # check if len(bytevec) is multiple of 16. pad with zeroes if not
+    if len(bytevec) % 2 != 0:
+        bytevec.append(0x00)
 
-    url = sys.argv[1]
+    # add up all 16-bit numbers in bytevec
+    sum = int.from_bytes(bytevec[0:2], byteorder='big')
 
-    domain, path = spliturl(url)
-    print('domain:', domain)
-    print('path:', path)
-    print('filename from full url:', filenamefromurl(url))
-    print('filename from path:', filenamefromurl(path))
+    for idx in range(2, len(bytevec) - 1, 2):
+        nextoctet = int.from_bytes(bytevec[idx:idx+2], byteorder='big')
+        print(hex(sum), '+', hex(nextoctet))
+        sum += nextoctet
 
-    remote_addr = dnslookup(url)
-    print('address of remote server:', remote_addr)
+        # check carry bits
+        if sum > 0xffff:
+            sum = sum - 0x10000 + 1
 
-    local_ip = getlocalip()
-    print('local IP addr:', local_ip)
+    # flip all bits in the sum and return it
+    sum_bytes = bytearray(sum.to_bytes(2, byteorder='big', signed=False))
+    sum_bytes[0] ^= 0xff
+    sum_bytes[1] ^= 0xff
+    invertedsum = int.from_bytes(sum_bytes, byteorder='big', signed=False)
+
+    return invertedsum

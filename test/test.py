@@ -1,6 +1,7 @@
 import unittest
 from unittest import TestCase
 import httpcode
+import utils
 
 
 class Tests(TestCase):
@@ -14,6 +15,49 @@ class Tests(TestCase):
         self.assertTrue('Transfer-Encoding' in resp.headers)
         self.assertEqual('chunked', resp.headers['Transfer-Encoding'])
         self.assertTrue(resp.body.startswith('<!DOCTYPE html>'))
+
+    def test_spliturl(self):
+        url1 = 'https://david.choffnes.com/classes/cs4700fa20/project4.php'
+        url2 = 'https://david.choffnes.com/'
+
+        domain1, path1 = utils.spliturl(url1)
+        self.assertEqual(domain1, 'david.choffnes.com')
+        self.assertEqual(path1, '/classes/cs4700fa20/project4.php')
+
+        domain2, path2 = utils.spliturl(url2)
+        self.assertEqual(domain2, 'david.choffnes.com')
+        self.assertEqual(path2, '/')
+
+    def test_filenamefromurl(self):
+        url1 = 'https://david.choffnes.com/classes/cs4700fa20/project4.php'
+        url2 = 'https://david.choffnes.com/'
+
+        self.assertEqual(utils.filenamefromurl(url1), 'project4.php')
+        self.assertEqual(utils.filenamefromurl(url2), 'index.html')
+
+    def test_dnslookup(self):
+        remote_addr = utils.dnslookup('https://david.choffnes.com/classes/cs4700fa20/project4.php')
+
+    def test_getlocalip(self):
+        local_ip = utils.getlocalip()
+        self.assertNotEqual(local_ip, '127.0.0.1')
+        self.assertNotEqual(local_ip, '127.0.1.1')
+
+    def test_checksum_wikipedia(self):
+        bytes = bytearray.fromhex('450000730000400040110000c0a80001c0a800c7')
+        print(bytes)
+        chksm = utils.checksum16(bytes)
+        self.assertEqual(chksm, 0xb861)
+
+    def test_checksum_mathforum(self):
+        bytes = bytearray.fromhex('865e ac60 712a 81b5')
+        chksm = utils.checksum16(bytes)
+        self.assertEqual(chksm, 0xda60)
+
+    def test_checksum_mathforum_padded(self):
+        bytes = bytearray.fromhex('865eac60712a81')
+        chksm = utils.checksum16(bytes)
+        self.assertEqual(chksm, 0xdb15)
 
 
 if __name__ == '__main__':

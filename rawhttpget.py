@@ -4,7 +4,7 @@ from scapy.layers.http import HTTP
 from scapy.layers.inet import IP, TCP
 
 import httpcode
-from urlutils import spliturl, dnslookup, getlocalip, filenamefromurl
+from utils import spliturl, dnslookup, getlocalip, filenamefromurl
 from scapy.all import *
 
 '''
@@ -37,7 +37,6 @@ class Client:
         self.ssock.connect((remote_ip, DSTPORT))
 
         self.rsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
-        # rsock.setsockopt(socket.IPPROTO_IP, IP_HDRINCL, 1)
         self.rsock.bind((local_ip, SRCPORT))
 
         self.local_ip = local_ip
@@ -85,7 +84,7 @@ def rawhttpget(url):
     domain, path = spliturl(url)
     remote_addr = dnslookup(url)
     outfn = filenamefromurl(url)
-    local_ip = "192.168.198.131"  # getlocalip()
+    local_ip = "192.168.198.131"  # TODO get this dynamically via getlocalip()
 
     getstr = 'GET ' + path + ' HTTP/1.1\r\nHost: ' + domain + '\r\n\r\n'
 
