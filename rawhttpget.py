@@ -8,6 +8,7 @@ from scapy.layers.inet import TCP
 
 import httpcode
 from ip import IP, deserialize_ip
+from tcp import deserialize_tcp
 from utils import spliturl, dnslookup, getlocalip, filenamefromurl, checksum16
 
 '''
@@ -56,7 +57,8 @@ class Client:
 
             ip = deserialize_ip(bytearray(data))
             if ip.src == self.remote_ip and ip.dst == self.local_ip:
-                ip.data = TCP(bytes(ip.data))  # important to cast to bytes or else bytes(HTTP) throws an exception
+                if ip.proto == 6:
+                    ip.data = deserialize_tcp(ip.data)
                 return ip
 
     def sendip(self, ip, debug=False):
@@ -67,15 +69,9 @@ class Client:
         #self.send(ip.serialize())
         self.send(bytes(ip))
 
-    def gettcpchksum(self, tcp):
-        ip = scapy.layers.inet.IP(src=self.local_ip, dst=self.remote_ip) / tcp
-        #ip.show2()
-        return ip[TCP].chksum
-
     def sendtcp(self, tcp, debug=False):
         tcp[TCP].sport = SRCPORT
         tcp[TCP].dport = DSTPORT
-        tcp[TCP].chksum = self.gettcpchksum(tcp)
         tcp_slz = bytearray(bytes(tcp))
 
         #ip = IP(src=self.local_ip, dst=self.remote_ip, proto=6, data=tcp_slz, len=20 + len(tcp_slz))
@@ -114,8 +110,8 @@ def rawhttpget(url):
               ack=ack)
     synack = c.sendrecvtcp(syn)
 
-    seq = synack.data[TCP].ack
-    ack = synack.data[TCP].seq + 1
+    seq = synack.data.ack
+    ack = synack.data.seq + 1
 
     ackpkt = TCP(flags='A',
                  seq=seq,
@@ -127,25 +123,23 @@ def rawhttpget(url):
 
     # for when I inevitably forget this
     # iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
-    if resp.data[TCP].flags == 'R':
+    if resp.data.flags == 'R':
         sys.exit('Received reset after ACK in 3 way handshake. Maybe you forgot to edit iptables?')
 
     # now keep receiving packets until the full url has been received
     while True:
-        if not resp.data.haslayer(HTTP):
+        #if not resp.data.haslayer(HTTP):
+        if resp.data.data is None:
             fptr.close()
             break
 
-        #print(resp[IP].len)
-        #print(bytes(resp[TCP].payload).decode('ascii'))
-
         # only update ACK number when the packet is what we expect
         # TODO change this when we support sliding window
-        if ack == resp.data[TCP].seq:
-            seq = resp.data[TCP].ack
-            ack = ack + len(resp.data[TCP].payload)
+        if ack == resp.data.seq:
+            seq = resp.data.ack
+            ack = ack + len(resp.data.data)
 
-            nonscapyresp = httpcode.HTTPResponse(bytes(resp.data[TCP].payload))
+            nonscapyresp = httpcode.HTTPResponse(bytes(resp.data.data))
             fptr.write(nonscapyresp.body)
 
         # ack last received packet

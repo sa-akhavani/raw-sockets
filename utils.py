@@ -39,6 +39,17 @@ def getlocalip():
     return external_ip
 
 
+def getpseudoheader(ip):
+    """Extracts the pseudoheader using in the TCP checksum computation from an IP packet. Returns a bytearray"""
+    pseudoheader = bytearray()
+    pseudoheader.extend(addrtobytearray(ip.src))
+    pseudoheader.extend(addrtobytearray(ip.dst))
+    pseudoheader.append(0)
+    pseudoheader.append(ip.proto)
+    pseudoheader.extend(serialize16(ip.len - ip.ihl*4))
+    return pseudoheader
+
+
 def addrtobytearray(addr):
     """Converts the given IP address (given as a dot-separated string) into a bytearray of length 4"""
     spl = addr.split('.')
@@ -69,6 +80,15 @@ def bytearraytoaddr(slz):
 def serialize16(value):
     """Returns the given 16-bit value as a bytearray of length 2"""
     return bytearray(value.to_bytes(2, byteorder='big', signed=False))
+
+
+def serialize32(value):
+    """Returns the given 32-bit value as a bytearray of length 4"""
+    return bytearray(value.to_bytes(4, byteorder='big', signed=False))
+
+
+def deserializeint(value):
+    return int.from_bytes(value, byteorder='big', signed=False)
 
 
 def checksum16(bytevec):

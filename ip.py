@@ -1,5 +1,3 @@
-import sys
-
 import utils
 
 """
@@ -36,7 +34,7 @@ def deserialize_ip(slz):
     At present, deserialization only supports IPv4 and only allows the underlying protocol to be TCP.
     """
     if len(slz) < 20:
-        raise RuntimeError('Buffer length too small: {}'.format(len(slz)))
+        raise RuntimeError('IP buffer length too small: {}'.format(len(slz)))
 
     pkt = IP()
 
@@ -52,13 +50,12 @@ def deserialize_ip(slz):
 
     pkt.tos = slz[1]
 
-    pkt.len = int.from_bytes(slz[2:4], byteorder='big', signed=False)
+    pkt.len = utils.deserializeint(slz[2:4])
     if pkt.len != len(slz):
         raise RuntimeError('IP total length does not match buffer size: {} vs {}'.format(pkt.tos, len(slz)))
 
-    pkt.idnum = int.from_bytes(slz[4:6], byteorder='big', signed=False)
-
-    flags_fragoffset = int.from_bytes(slz[6:8], byteorder='big', signed=False)
+    pkt.idnum = utils.deserializeint(slz[4:6])
+    flags_fragoffset = utils.deserializeint(slz[6:8])
 
     if flags_fragoffset & DF != 0:
         pkt.flags += 'D'
@@ -73,8 +70,7 @@ def deserialize_ip(slz):
     if pkt.proto not in [0, 6]:
         raise RuntimeError('IP underlying protocol not supported: {}'.format(pkt.tos))
 
-    pkt.chksum = int.from_bytes(slz[10:12], byteorder='big', signed=False)
-
+    pkt.chksum = utils.deserializeint(slz[10:12])
     pkt.src = utils.bytearraytoaddr(slz[12:16])
     pkt.dst = utils.bytearraytoaddr(slz[16:20])
 
@@ -129,7 +125,7 @@ class IP:
 
     def __checkflags(self, flags):
         if flags not in ['', 'D', 'M', 'DM']:
-            sys.exit('invalid IP flags field provided: {}'.format(flags))
+            raise RuntimeError('invalid IP flags field provided: {}'.format(flags))
             
     def compute_checksum(self):
         datagram = self.serialize()[0:self.ihl*4]
@@ -140,6 +136,7 @@ class IP:
         self.chksum = utils.checksum16(datagram)
 
     def serialize(self):
+        """Serializes this IP packet into a bytearray that can be sent over a raw socket"""
         slz = bytearray()
 
         version_ihl = (self.version << 4) | self.ihl
