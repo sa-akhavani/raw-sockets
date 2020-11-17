@@ -4,7 +4,7 @@ import httpcode
 import utils
 
 
-class Tests(TestCase):
+class UtilsTests(TestCase):
     def test_httprespclass(self):
         slz = b"HTTP/1.1 200 OK\r\nDate: Sat, 14 Nov 2020 16:56:29 GMT\r\nServer: Apache\r\nVary: Accept-Encoding,User-Agent\r\nTransfer-Encoding: chunked\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n4000\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Project 4: CS 5700 Fundamentals of Computer Networking: David Choffnes, Ph.D.</title>\n</html>"
         resp = httpcode.HTTPResponse(slz)
@@ -42,6 +42,18 @@ class Tests(TestCase):
         local_ip = utils.getlocalip()
         self.assertNotEqual(local_ip, '127.0.0.1')
         self.assertNotEqual(local_ip, '127.0.1.1')
+        
+    def testaddrtobytearray(self):
+        self.assertEqual(bytearray(b'\x00\x00\x00\x00'), utils.addrtobytearray('0.0.0.0'))
+        self.assertEqual(bytearray(b'\x7f\x00\x00\x01'), utils.addrtobytearray('127.0.0.1'))
+        self.assertEqual(bytearray(b'\xab\xcd\xe2\x34'), utils.addrtobytearray('171.205.226.52'))
+        self.assertEqual(bytearray(b'\xff\xff\xff\xff'), utils.addrtobytearray('255.255.255.255'))
+
+    def testbytearraytoaddr(self):
+        self.assertEqual(utils.bytearraytoaddr(bytearray(b'\x00\x00\x00\x00')), '0.0.0.0')
+        self.assertEqual(utils.bytearraytoaddr(bytearray(b'\x7f\x00\x00\x01')), '127.0.0.1')
+        self.assertEqual(utils.bytearraytoaddr(bytearray(b'\xab\xcd\xe2\x34')), '171.205.226.52')
+        self.assertEqual(utils.bytearraytoaddr(bytearray(b'\xff\xff\xff\xff')), '255.255.255.255')
 
     def test_checksum_wikipedia(self):
         bytes = bytearray.fromhex('450000730000400040110000c0a80001c0a800c7')

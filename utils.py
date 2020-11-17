@@ -39,6 +39,38 @@ def getlocalip():
     return external_ip
 
 
+def addrtobytearray(addr):
+    """Converts the given IP address (given as a dot-separated string) into a bytearray of length 4"""
+    spl = addr.split('.')
+    if len(spl) != 4:
+        raise RuntimeError('invalid IP address: {}'.format(addr))
+
+    out = bytearray()
+    for part in spl:
+        out.append(int(part))
+
+    return out
+
+
+def bytearraytoaddr(slz):
+    """Converts the given bytearray to an IP address as a dot-separated string"""
+    if len(slz) != 4:
+        raise RuntimeError('Array wrong length to be an IPv4 address')
+
+    out = str(slz[0])
+
+    for i in range(1, 4):
+        out += '.'
+        out += str(slz[i])
+
+    return out
+
+
+def serialize16(value):
+    """Returns the given 16-bit value as a bytearray of length 2"""
+    return bytearray(value.to_bytes(2, byteorder='big', signed=False))
+
+
 def checksum16(bytevec):
     """
     Computer a checksum for the given byte array. The checksum is the one's complement of the one's complement addition
@@ -54,7 +86,6 @@ def checksum16(bytevec):
 
     for idx in range(2, len(bytevec) - 1, 2):
         nextoctet = int.from_bytes(bytevec[idx:idx+2], byteorder='big')
-        print(hex(sum), '+', hex(nextoctet))
         sum += nextoctet
 
         # check carry bits
@@ -62,7 +93,7 @@ def checksum16(bytevec):
             sum = sum - 0x10000 + 1
 
     # flip all bits in the sum and return it
-    sum_bytes = bytearray(sum.to_bytes(2, byteorder='big', signed=False))
+    sum_bytes = serialize16(sum)
     sum_bytes[0] ^= 0xff
     sum_bytes[1] ^= 0xff
     invertedsum = int.from_bytes(sum_bytes, byteorder='big', signed=False)
