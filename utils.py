@@ -86,6 +86,7 @@ def checksum16(bytevec):
 
     for idx in range(2, len(bytevec) - 1, 2):
         nextoctet = int.from_bytes(bytevec[idx:idx+2], byteorder='big')
+        #print('{} + {}'.format(sum, nextoctet))
         sum += nextoctet
 
         # check carry bits

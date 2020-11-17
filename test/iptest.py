@@ -21,9 +21,20 @@ class IPTest(TestCase):
         self.assertEqual(pkt.options, scapypkt[scapyip.IP].options)
         self.assertEqual(pkt.data, scapypkt[scapyip.IP].data)
 
-    def test_ipchecksum(self):
+    def test_ipchecksum_default(self):
         pkt = ip.IP()
         self.assertEqual(0x7ce7, pkt.chksum)
+
+    def test_ipchecksum_specific(self):
+        pkt = ip.IP(version=4, ihl=5, tos=0, len=40, id=1, flags='', frag=0, ttl=64, proto=6,
+                    src='192.168.198.131', dst='204.44.192.60')
+        self.assertEqual(0x673a, pkt.chksum)
+
+    def test_ipchecksum_specific_withpayload(self):
+        pkt = ip.IP(version=4, ihl=5, tos=0, len=40, id=1, flags='', frag=0, ttl=64, proto=6,
+                    src='192.168.198.131', dst='204.44.192.60',
+                    data=bytearray(b'\x82(\x00P\x00\x00\x00\x00\x00\x00\x00\x00P\x02 \x00\x00\x00\x00\x00'))
+        self.assertEqual(0x673a, pkt.chksum)
 
     def test_serialize_default(self):
         pkt = ip.IP()
@@ -35,6 +46,7 @@ class IPTest(TestCase):
         scapypkt = scapyip.IP()
         slz = bytearray(bytes(scapypkt))
         pkt = ip.deserialize_ip(slz)
+        scapypkt.show()
 
         self.assertEqual(pkt.version, 4)
         self.assertEqual(pkt.ihl, 5)

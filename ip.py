@@ -112,15 +112,30 @@ class IP:
         self.data = data
         self.compute_checksum()
 
+    def show(self):
+        print('###[ IP ]###')
+        print(' version = {}'.format(self.version))
+        print(' ihl = {}'.format(self.ihl))
+        print(' tos = {}'.format(self.tos))
+        print(' len = {}'.format(self.len))
+        print(' id = {}'.format(self.idnum))
+        print(' flags = {}'.format(self.flags))
+        print(' frag = {}'.format(self.frag))
+        print(' ttl = {}'.format(self.ttl))
+        print(' proto = {}'.format(self.proto))
+        print(' chksum = {}'.format(self.chksum))
+        print(' src = {}'.format(self.src))
+        print(' dst = {}'.format(self.dst))
+
     def __checkflags(self, flags):
         if flags not in ['', 'D', 'M', 'DM']:
             sys.exit('invalid IP flags field provided: {}'.format(flags))
             
     def compute_checksum(self):
-        datagram = self.serialize()
+        datagram = self.serialize()[0:self.ihl*4]
         # zero out checksum before computing
         for i in [10, 11]:
-            datagram[i] = 0x00
+            datagram[i] = 0x0000
             
         self.chksum = utils.checksum16(datagram)
 

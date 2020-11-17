@@ -1,11 +1,14 @@
+import random
+import socket
 import sys
 
+import scapy
 from scapy.layers.http import HTTP
-from scapy.layers.inet import IP, TCP
+from scapy.layers.inet import TCP
 
 import httpcode
-from utils import spliturl, dnslookup, getlocalip, filenamefromurl
-from scapy.all import *
+from ip import IP, deserialize_ip
+from utils import spliturl, dnslookup, getlocalip, filenamefromurl, checksum16
 
 '''
 https://stackoverflow.com/questions/4750793/python-scapy-or-the-like-how-can-i-create-an-http-get-request-at-the-packet-leve
@@ -22,7 +25,7 @@ reply = sr1(request)
 
 SRCPORT = random.randint(1024, 65535)
 DSTPORT = 80
-MTU = 65535  # 1500
+MSS = 65535
 
 
 class Client:
@@ -47,31 +50,43 @@ class Client:
 
     def recv(self, debug=False):
         while True:
-            data = self.rsock.recv(MTU)
+            data = self.rsock.recv(MSS)
             if debug:
                 print(data)
 
-            ip = IP(data)
-            if ip[IP].src == self.remote_ip and ip[IP].dst == self.local_ip:
+            ip = deserialize_ip(bytearray(data))
+            if ip.src == self.remote_ip and ip.dst == self.local_ip:
+                ip.data = TCP(bytes(ip.data))  # important to cast to bytes or else bytes(HTTP) throws an exception
                 return ip
 
     def sendip(self, ip, debug=False):
         if debug:
             ip.show2()
+            #scapy.layers.inet.IP(bytes(ip.serialize())).show2()
 
+        #self.send(ip.serialize())
         self.send(bytes(ip))
+
+    def gettcpchksum(self, tcp):
+        ip = scapy.layers.inet.IP(src=self.local_ip, dst=self.remote_ip) / tcp
+        #ip.show2()
+        return ip[TCP].chksum
 
     def sendtcp(self, tcp, debug=False):
         tcp[TCP].sport = SRCPORT
         tcp[TCP].dport = DSTPORT
-        ip = IP(src=self.local_ip, dst=self.remote_ip)
-        self.sendip(ip / tcp, debug)
+        tcp[TCP].chksum = self.gettcpchksum(tcp)
+        tcp_slz = bytearray(bytes(tcp))
+
+        #ip = IP(src=self.local_ip, dst=self.remote_ip, proto=6, data=tcp_slz, len=20 + len(tcp_slz))
+        ip = scapy.layers.inet.IP(src=self.local_ip, dst=self.remote_ip) / tcp
+        self.sendip(ip, debug)
 
     def sendrecvtcp(self, tcp, debug=False):
         self.sendtcp(tcp, debug)
         ip = self.recv()
         if debug:
-            ip.show2()
+            ip.show()
         return ip
 
 
@@ -99,8 +114,8 @@ def rawhttpget(url):
               ack=ack)
     synack = c.sendrecvtcp(syn)
 
-    seq = synack[TCP].ack
-    ack = synack[TCP].seq + 1
+    seq = synack.data[TCP].ack
+    ack = synack.data[TCP].seq + 1
 
     ackpkt = TCP(flags='A',
                  seq=seq,
@@ -112,12 +127,12 @@ def rawhttpget(url):
 
     # for when I inevitably forget this
     # iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
-    if resp[TCP].flags == 'R':
+    if resp.data[TCP].flags == 'R':
         sys.exit('Received reset after ACK in 3 way handshake. Maybe you forgot to edit iptables?')
 
     # now keep receiving packets until the full url has been received
-    for _ in range(10):
-        if not resp.haslayer(HTTP):
+    while True:
+        if not resp.data.haslayer(HTTP):
             fptr.close()
             break
 
@@ -126,11 +141,11 @@ def rawhttpget(url):
 
         # only update ACK number when the packet is what we expect
         # TODO change this when we support sliding window
-        if ack == resp[TCP].seq:
-            seq = resp[TCP].ack
-            ack = ack + len(resp[TCP].payload)
+        if ack == resp.data[TCP].seq:
+            seq = resp.data[TCP].ack
+            ack = ack + len(resp.data[TCP].payload)
 
-            nonscapyresp = httpcode.HTTPResponse(bytes(resp[TCP].payload))
+            nonscapyresp = httpcode.HTTPResponse(bytes(resp.data[TCP].payload))
             fptr.write(nonscapyresp.body)
 
         # ack last received packet
