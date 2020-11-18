@@ -35,8 +35,13 @@ def dnslookup(url):
 
 
 def getlocalip():
-    external_ip = urllib.request.urlopen('https://ident.me').read().decode('utf8')
-    return external_ip
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(('1.1.1.1', 1)) # Does not matter where to connect
+    src_ip = s.getsockname()[0]
+    if (src_ip == '127.0.0.1'):
+        print('ERR: Received Localhost as source IP.')
+    s.close()
+    return src_ip
 
 
 def getpseudoheader(ip):
