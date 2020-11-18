@@ -72,11 +72,12 @@ class Client:
 
 
 def rawhttpget(url):
+    if (('http://' not in url) and ('https://' not in url)):
+        url = 'http://' + url
     domain, path = spliturl(url)
     remote_addr = dnslookup(url)
     outfn = filenamefromurl(url)
-    local_ip = "192.168.198.131"  # TODO get this dynamically via getlocalip()
-
+    local_ip = getlocalip()
     getstr = 'GET ' + path + ' HTTP/1.1\r\nHost: ' + domain + '\r\n\r\n'
 
     c = Client()
