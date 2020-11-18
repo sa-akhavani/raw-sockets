@@ -92,7 +92,7 @@ def gethttpmagicnumber(httpload):
 
 
 def rawhttpget(url):
-    if ('http://' not in url):
+    if (('http://' not in url) and ('https://' not in url)):
         url = 'http://' + url
     domain, path = spliturl(url)
     remote_addr = dnslookup(url)
