@@ -37,11 +37,13 @@ class UtilsTests(TestCase):
 
     def test_dnslookup(self):
         remote_addr = utils.dnslookup('https://david.choffnes.com/classes/cs4700fa20/project4.php')
+        self.assertEqual(remote_addr, '204.44.192.60')  # expected value obtained from the dig command
 
     def test_getlocalip(self):
         local_ip = utils.getlocalip()
         self.assertNotEqual(local_ip, '127.0.0.1')
         self.assertNotEqual(local_ip, '127.0.1.1')
+        self.assertIsNotNone(local_ip)
         
     def testaddrtobytearray(self):
         self.assertEqual(bytearray(b'\x00\x00\x00\x00'), utils.addrtobytearray('0.0.0.0'))

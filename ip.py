@@ -1,3 +1,4 @@
+import tcp
 import utils
 
 """
@@ -122,6 +123,9 @@ class IP:
         print(' chksum = {}'.format(self.chksum))
         print(' src = {}'.format(self.src))
         print(' dst = {}'.format(self.dst))
+
+        if isinstance(self.data, tcp.TCP):
+            self.data.show()
 
     def __checkflags(self, flags):
         if flags not in ['', 'D', 'M', 'DM']:

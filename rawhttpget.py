@@ -10,6 +10,7 @@ from utils import spliturl, dnslookup, getlocalip, filenamefromurl, checksum16
 SRCPORT = random.randint(1024, 65535)
 DSTPORT = 80
 MSS = 65535
+DEBUG = False
 
 
 class Client:
@@ -72,7 +73,7 @@ class Client:
 
 
 def rawhttpget(url):
-    if (('http://' not in url) and ('https://' not in url)):
+    if not (url.startswith('http://') or url.startswith('https://')):
         url = 'http://' + url
     domain, path = spliturl(url)
     remote_addr = dnslookup(url)
@@ -89,7 +90,7 @@ def rawhttpget(url):
     syn = TCP(flags='S',
               seq=seq,
               ack=ack)
-    synack = c.sendrecvtcp(syn, True)
+    synack = c.sendrecvtcp(syn, DEBUG)
 
     seq = synack.data.ack
     ack = synack.data.seq + 1
@@ -98,8 +99,8 @@ def rawhttpget(url):
                  seq=seq,
                  ack=ack,
                  data=bytearray(getstr, encoding='ascii'))
-    c.sendrecvtcp(ackpkt, True)  # ignore first packet received
-    resp = c.recv(True)
+    c.sendrecvtcp(ackpkt, DEBUG)  # ignore first packet received
+    resp = c.recv(DEBUG)
     tcpresp = resp.data
 
     # for when I inevitably forget this
@@ -130,13 +131,31 @@ def rawhttpget(url):
                      seq=seq,
                      ack=ack)
 
-        resp = c.sendrecvtcp(ackpkt, True)
+        resp = c.sendrecvtcp(ackpkt, DEBUG)
         tcpresp = resp.data
 
+    # ack stays the same because we only reach this if TCP data was zero
+    seq = tcpresp.ack
     finpkt = TCP(flags='F',
                  seq=seq,
                  ack=ack)
-    resp = c.sendrecvtcp(finpkt)
+    resp = c.sendrecvtcp(finpkt, DEBUG)
+    tcpresp = resp.data
+
+    while True:
+        if ack == tcpresp.seq:
+            seq = tcpresp.ack
+
+        # ack last received packet
+        ackpkt = TCP(flags='A',
+                     seq=seq,
+                     ack=ack)
+
+        resp = c.sendrecvtcp(ackpkt, DEBUG)
+        tcpresp = resp.data
+
+        if 'F' in tcpresp.flags:
+            break
 
 
 if __name__ == '__main__':
