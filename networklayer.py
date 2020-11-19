@@ -57,6 +57,13 @@ class NetworkLayer:
         ippkt.data = tcp.serialize()  # must reserialize to get correct checksum
         self.ssock.sendall(ippkt.serialize())
 
+    def __valid_checksum(self, ip_pkt):
+        """Returns whether the checksum provided in the IP packet is correct"""
+        given_checksum = ip_pkt.chksum
+        ip_pkt.compute_checksum()
+        calculated_checksum = ip_pkt.chksum
+        return given_checksum == calculated_checksum
+
     def recv(self, debug=False):
         """
         Receives data from the receive socket and deserializes it into an IP packet.
@@ -72,5 +79,7 @@ class NetworkLayer:
             if debug:
                 ip_pkt.show()
 
+            # only return packets with the correct src/dst addresses and which have a valid checksum
             if ip_pkt.src == self.remote_addr and ip_pkt.dst == self.local_addr:
-                return ip_pkt
+                if self.__valid_checksum(ip_pkt):
+                    return ip_pkt
