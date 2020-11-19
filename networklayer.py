@@ -1,6 +1,7 @@
 import socket
 import sys
 import time
+from enum import Enum
 
 import ip
 
@@ -19,9 +20,11 @@ class NetworkLayer:
     remote_addr = None
 
     connected = False  # whether the raw sockets have been created and bound/connected
+    firstrecv = True  # whether this is the first call to recv since we last received a packet
+    recvstarttime = None
 
     MSS = 65535
-    TIMEO = 180
+    timeout = 180
 
     def connect(self, localaddrpair, remoteaddrpair):
         """
@@ -35,12 +38,17 @@ class NetworkLayer:
 
         self.rsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
         self.rsock.bind(localaddrpair)
-        self.rsock.settimeout(self.TIMEO)  # 3 minute timeout
+        self.rsock.settimeout(self.timeout)
 
         self.local_addr = localaddrpair[0]
         self.remote_addr = remoteaddrpair[0]
 
         self.connected = True
+
+    def settimeout(self, timeo):
+        self.timeout = timeo
+        self.rsock.settimeout(self.timeout)
+
 
     def send(self, tcp, debug=False):
         """
@@ -60,6 +68,7 @@ class NetworkLayer:
         if debug:
             # set data to packet itself to print both IP and TCP
             ippkt.data = tcp
+            print('sending')
             ippkt.show()
 
         ippkt.data = tcp.serialize()  # must reserialize to get correct checksum
@@ -78,31 +87,41 @@ class NetworkLayer:
 
         debug (bool) - debug mode enabled or not. if True, then the received bytes and deserialized packet are printed
         """
-        # get start time to enable 3-minute timeout
-        # must do this because recv socket is promiscuous and we need to know when 3 minutes have elapsed since we heard
-        # from the server we WANT to talk to, not just since we heard anything from the entire network
-        start = time.time()
 
+        # This code enables the 3 minute timeout
+        #
+        # On the first call to this function since we last received a packet addressed to us, save the current time.
+        #
+        # On subsequent calls, compare the current time to the time since we last received a packet.
+        #
+        # This check is necessary because the transport layer raises an exception if a packet is not received after a
+        # minute, which will interrupt this function. Since the network layer times out after 3 minutes, we must track
+        # the time across multiple function calls.
+        ts = time.time()
+        if self.firstrecv:
+            self.recvstarttime = ts
+            self.firstrecv = False
+        elif ts - self.recvstarttime >= self.timeout:
+            sys.exit('No response from server after {} seconds. Connection assumed dead'.format(self.timeout))
+
+        # receive in a loop until we get a packet from the remote server addressed to us
         while True:
+            # this will never be executed as long as the TCP connection is doing its own timeouts, but is necessary if
+            # a different transport layer protocol is used that still wants the 3-minute timeout from the network layer
             try:
                 data = self.rsock.recv(self.MSS)
             except socket.timeout:
-                sys.exit('Socket timeout after {} seconds. Connection assumed dead'.format(self.TIMEO))
-
-            # terminate if we've been receiving for 3 minutes
-            end = time.time()
-            if end - start >= self.TIMEO:
-                sys.exit('No response from remote server after {} seconds. Connection assumed dead'.format(self.TIMEO))
-
-            if debug:
-                print(data)
+                sys.exit('Socket timeout after {} seconds. Connection assumed dead'.format(self.timeout))
 
             # deserialize packet
             ip_pkt = ip.deserialize_ip(bytearray(data))
             if debug:
+                print('received')
                 ip_pkt.show()
 
             # only return packets with the correct src/dst addresses and which have a valid checksum
             if ip_pkt.src == self.remote_addr and ip_pkt.dst == self.local_addr:
+                self.firstrecv = True
+
                 if self.__valid_checksum(ip_pkt):
                     return ip_pkt

@@ -1,6 +1,4 @@
 import sys
-import socket
-import re
 from enum import Enum
 
 HTTP_STATUS_CODES = {
@@ -24,6 +22,8 @@ class HTTPResponse:
     headers = None
     body = ''
     ischunked = False
+
+    debug = False
 
     def __extractversionstatus(self, line):
         """Extracts the HTTP version and status code"""
@@ -84,9 +84,9 @@ class HTTPResponse:
 
     def __init__(self, slz):
         """
-        :param slz: bytes
+        slz (bytes) - HTTP response extracted from a TCP packet
         """
-        slz = slz.decode('utf-8')
+        slz = slz.decode('utf-8', 'replace')  # 'replace' allows us to decode bytes 0x80-0xff
         lines = slz.split('\r\n')
 
         if HTTPResponse.parsestate == ParseState.RDNEW:
@@ -108,10 +108,14 @@ class HTTPResponse:
 # Extract body from the server response string
 def extract_response_body(response):
     lines = response.splitlines()
-    
+
+    body_start_index = None
     for line in lines:
         if 'Content-Type:' in line:
             body_start_index = lines.index(line) + 1
+
+    if body_start_index is None:
+        sys.exit('could not determine http body start index')
 
     body = ''
     for idx in range(body_start_index, len(lines)):

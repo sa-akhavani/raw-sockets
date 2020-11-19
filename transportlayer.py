@@ -1,15 +1,11 @@
 import random
+import signal
 import sys
+import time
 
 from tcp import TCP, deserialize_tcp
 
 """
-1 minute timeout for packets to be dropped:
- - for each packet we send, track time stamp and what the expected ack would be for it
-    - list of (expected ack, timestamp, packet itself)
- - for every packet received, get timestamp. iterate over list. if we see a timestamp that was over one minute ago,
-   retransmit it and reset cwnd. if we see the expected ack and the timestamp is not one minute ago, remote it from the list
-
 handle out or order packets:
  - track next expected seq
  - when we receive a packet, compare seq with expected
@@ -27,10 +23,13 @@ detect packets with seq outside of window:
  - when we receive a packet, if seq > window, ignore it
 
 congestion window management:
- - add cwnd member variable. initially set to 1
- - for every ack we receive, increment by 1 until it reaches 1000
- - when a packet is dropped, reset cwnd
+ - advertised window = min(cwnd, self.window)
 """
+
+
+def handler(signum, frame):
+    """Handler for timing out recv"""
+    raise TimeoutError()
 
 
 class TransportLayer:
@@ -43,6 +42,15 @@ class TransportLayer:
 
     seq = random.randint(0, 4294967295)  # initial seq
     ack = 0  # initial ack
+
+    window = 8192
+    cwnd = 1
+
+    timeout = 60  # timeout
+
+    # list of (expected ack, timestamp, packet itself)
+    # used to track when packets have been dropped
+    trackinginfo = []
 
     def __init__(self, ntwk, sport, dport, debug=False):
         self.ntwk = ntwk
@@ -64,6 +72,54 @@ class TransportLayer:
             tcppkt = TCP(data=data)
             self.__send_packet(tcppkt)
 
+    def __track(self, tcppkt):
+        """Tracks the given packet by storing the ACK we expect to receive for it, the time at which we sent it, and the
+        packet itself so that we can retransmit it.
+
+        tcppkt (TCP) - tcp packet object to track
+        """
+
+        expectedack = tcppkt.seq
+        if tcppkt.data is not None:
+            expectedack += len(tcppkt.data)
+
+        ts = time.time()
+
+        self.trackinginfo.append((expectedack, ts, tcppkt))
+
+    def __check_retransmit(self, tcppkt):
+        """
+        Iterates over the list of packets we've sent looking for any packets that have timed out waiting for an ACK. For
+        any packets that have timed out, this function retransmits them. If this packet is a match for a sent packet that
+        has not timed out, then it simply removes that packet from the tracking list.
+
+        tcppkt (TCP) - a TCP packet object that was just received from the network. If this is None, then the code is
+                       requesting to retransmit only packets that have timed out. This is useful if we never receive
+                       ACKs from the server
+        """
+        ts = time.time()
+
+        rmvidx = []
+        for i in range(len(self.trackinginfo)):
+            pktinfo = self.trackinginfo[i]
+
+            if ts - pktinfo[1] >= self.timeout:
+                # timeout -- reset cwnd, remove tracking info, and retransmit
+                self.cwnd = 1
+                rmvidx.append(i)
+                self.__send_packet(pktinfo[2])
+            elif tcppkt is not None and pktinfo[0] == tcppkt.ack:
+                # successfully acked -- increment cwnd and remove tracking info
+                self.cwnd = min(self.cwnd + 1, 1000)
+                rmvidx.append(i)
+
+        if self.debug:
+            print('removing {} tracked packets'.format(len(rmvidx)))
+
+        # for any packets that timed out or were acked successfully, stop tracking them
+        for idx in reversed(rmvidx):
+            del self.trackinginfo[idx]
+
     def __send_packet(self, tcppkt):
         """
         Sends a TCP packet object over the network. Private helper function of this class
@@ -75,7 +131,10 @@ class TransportLayer:
         tcppkt.dport = self.dport
         tcppkt.seq = self.seq
         tcppkt.ack = self.ack
+        tcppkt.window = self.window
 
+        # track the packet, then send it
+        self.__track(tcppkt)
         self.ntwk.send(tcppkt, self.debug)
 
     def recv(self):
@@ -83,9 +142,21 @@ class TransportLayer:
         success = False
         tcppkt = None
 
+        signal.signal(signal.SIGALRM, handler)
+
         while not success:
-            # receive IP packet from network layer
-            ippkt = self.ntwk.recv(self.debug)
+            signal.alarm(self.timeout)
+
+            # receive IP packet from network layer or time out
+            # in addition to having self.trackinginfo, we must also implement a timeout here
+            # because we may never get any ACKs at all and still need to be able to retransmit
+            try:
+                ippkt = self.ntwk.recv(self.debug)
+            except TimeoutError:
+                self.__check_retransmit(None)
+                continue
+
+            signal.alarm(0)  # reset alarm
             if ippkt.proto != 6:
                 continue
 
@@ -105,6 +176,10 @@ class TransportLayer:
             # break early if this is the FIN packet
             if 'F' in tcppkt.flags:
                 return tcppkt.data
+
+            # handle ack. may have to retransmit some packets
+            if 'A' in tcppkt.flags:
+                self.__check_retransmit(tcppkt)
 
             # TODO modify window size. may need to add a state machine
             if self.ack == tcppkt.seq:
