@@ -92,6 +92,9 @@ class TransportLayer:
             # extract TCP packet from it
             tcppkt = deserialize_tcp(ippkt.data)
 
+            if tcppkt.sport != self.dport or tcppkt.dport != self.sport:
+                continue
+
             if self.debug:
                 tcppkt.show()
 

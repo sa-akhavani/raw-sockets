@@ -1,9 +1,8 @@
 import socket
 import sys
+import time
 
 import ip
-
-MSS = 65535
 
 """
 IP fragmentation assembly
@@ -21,6 +20,9 @@ class NetworkLayer:
 
     connected = False  # whether the raw sockets have been created and bound/connected
 
+    MSS = 65535
+    TIMEO = 180
+
     def connect(self, localaddrpair, remoteaddrpair):
         """
         Binds to the given local IP address and port and connects to the given remote IP address and port
@@ -33,7 +35,7 @@ class NetworkLayer:
 
         self.rsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
         self.rsock.bind(localaddrpair)
-        self.rsock.settimeout(180.0)  # 3 minute timeout
+        self.rsock.settimeout(self.TIMEO)  # 3 minute timeout
 
         self.local_addr = localaddrpair[0]
         self.remote_addr = remoteaddrpair[0]
@@ -76,15 +78,26 @@ class NetworkLayer:
 
         debug (bool) - debug mode enabled or not. if True, then the received bytes and deserialized packet are printed
         """
+        # get start time to enable 3-minute timeout
+        # must do this because recv socket is promiscuous and we need to know when 3 minutes have elapsed since we heard
+        # from the server we WANT to talk to, not just since we heard anything from the entire network
+        start = time.time()
+
         while True:
             try:
-                data = self.rsock.recv(MSS)
+                data = self.rsock.recv(self.MSS)
             except socket.timeout:
-                sys.exit('Socket timeout after 3 minutes. Connection assumed dead')
+                sys.exit('Socket timeout after {} seconds. Connection assumed dead'.format(self.TIMEO))
+
+            # terminate if we've been receiving for 3 minutes
+            end = time.time()
+            if end - start >= self.TIMEO:
+                sys.exit('No response from remote server after {} seconds. Connection assumed dead'.format(self.TIMEO))
 
             if debug:
                 print(data)
 
+            # deserialize packet
             ip_pkt = ip.deserialize_ip(bytearray(data))
             if debug:
                 ip_pkt.show()
