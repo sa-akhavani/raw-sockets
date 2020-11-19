@@ -4,6 +4,13 @@ import ip
 
 MSS = 65535
 
+"""
+full connection timeout after 3 minutes:
+ - add timeout after 180 seconds. if timeout on recv, terminate program
+
+IP fragmentation assembly
+"""
+
 
 class NetworkLayer:
     """Handles all functionality of the network layer and implements IP"""

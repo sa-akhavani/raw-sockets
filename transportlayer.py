@@ -3,6 +3,35 @@ import sys
 
 from tcp import TCP, deserialize_tcp
 
+"""
+1 minute timeout for packets to be dropped:
+ - for each packet we send, track time stamp and what the expected ack would be for it
+    - list of (expected ack, timestamp, packet itself)
+ - for every packet received, get timestamp. iterate over list. if we see a timestamp that was over one minute ago,
+   retransmit it and reset cwnd. if we see the expected ack and the timestamp is not one minute ago, remote it from the list
+
+handle out or order packets:
+ - track next expected seq
+ - when we receive a packet, compare seq with expected
+    - if the are equal, deliver to upper layer. iterate over list, look for packets that arrived out of order. append all
+      the data of all these packets in order and deliver them to the upper layer
+    - if seq > expected, out of order packet. save it to some list ****
+    - if seq < expected, ignore it. potentially duplicate
+    
+track window size:
+ - initial window size = 8192 (from scapy)
+ - when we receive a packet, decrement window by packet size
+ - when we send an ack, add packet size back to the window
+
+detect packets with seq outside of window:
+ - when we receive a packet, if seq > window, ignore it
+
+congestion window management:
+ - add cwnd member variable. initially set to 1
+ - for every ack we receive, increment by 1 until it reaches 1000
+ - when a packet is dropped, reset cwnd
+"""
+
 
 class TransportLayer:
     """Handles all functionality of the transport layer and implements TCP"""

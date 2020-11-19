@@ -61,7 +61,7 @@ def rawhttpget(url):
     if not (url.startswith('http://') or url.startswith('https://')):
         url = 'http://' + url
 
-    # get filename to write to, remote IPaddress, and our local IP address
+    # get filename to write to, remote IP address, and our local IP address
     domain, path = spliturl(url)
     outfn = filenamefromurl(url)
     remote_addr = dnslookup(url)
