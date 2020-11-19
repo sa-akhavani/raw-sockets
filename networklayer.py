@@ -1,13 +1,11 @@
 import socket
+import sys
 
 import ip
 
 MSS = 65535
 
 """
-full connection timeout after 3 minutes:
- - add timeout after 180 seconds. if timeout on recv, terminate program
-
 IP fragmentation assembly
 """
 
@@ -35,6 +33,7 @@ class NetworkLayer:
 
         self.rsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
         self.rsock.bind(localaddrpair)
+        self.rsock.settimeout(180.0)  # 3 minute timeout
 
         self.local_addr = localaddrpair[0]
         self.remote_addr = remoteaddrpair[0]
@@ -78,7 +77,11 @@ class NetworkLayer:
         debug (bool) - debug mode enabled or not. if True, then the received bytes and deserialized packet are printed
         """
         while True:
-            data = self.rsock.recv(MSS)
+            try:
+                data = self.rsock.recv(MSS)
+            except socket.timeout:
+                sys.exit('Socket timeout after 3 minutes. Connection assumed dead')
+
             if debug:
                 print(data)
 

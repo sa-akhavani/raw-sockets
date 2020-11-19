@@ -3,8 +3,6 @@ import tcp
 import ip
 import scapy.layers.inet as scapytcp
 
-import utils
-
 
 class TCPTest(unittest.TestCase):
     def test_tcpchecksum_default(self):
