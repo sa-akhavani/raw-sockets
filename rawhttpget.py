@@ -1,161 +1,95 @@
 import random
-import socket
 import sys
 
 import httpcode
-from ip import IP, deserialize_ip
-from tcp import TCP, deserialize_tcp
-from utils import spliturl, dnslookup, getlocalip, filenamefromurl, checksum16
+import networklayer
+import transportlayer
+from utils import spliturl, dnslookup, getlocalip, filenamefromurl
 
 SRCPORT = random.randint(1024, 65535)
 DSTPORT = 80
-MSS = 65535
 DEBUG = False
 
 
-class Client:
-    ssock = None
-    rsock = None
+class Socket:
+    """Network interface object that supports sending and receiving strings over a TCP connection"""
+    ntwk = None
+    trans = None
 
-    local_ip = None
-    remote_ip = None
+    def connect(self, localaddrpair, remoteaddrpair):
+        """
+        Binds to the given local IP address and port and connects to the given remote IP address and port
 
-    def connect(self, local_ip, remote_ip):
-        self.ssock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-        self.ssock.connect((remote_ip, DSTPORT))
+        localaddrpair - 2-tuple with format (ip_address as a string, port as an int)
+        remoteaddrpair - same as localaddrpair
+        """
+        self.ntwk = networklayer.NetworkLayer()
+        self.ntwk.connect(localaddrpair, remoteaddrpair)
+        self.trans = transportlayer.TransportLayer(self.ntwk, SRCPORT, DSTPORT, DEBUG)
 
-        self.rsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
-        self.rsock.bind((local_ip, SRCPORT))
+    def shutdown(self):
+        """Terminates the connection with the remote server"""
+        self.trans.shutdown()
 
-        self.local_ip = local_ip
-        self.remote_ip = remote_ip
+    def send(self, data):
+        """
+        Sends the given data over the network
 
-    def send(self, msg):
-        self.ssock.sendall(msg)
+        data (str or bytearray) - data to be sent
+        """
+        if isinstance(data, str):
+            data = bytearray(data, encoding='ascii')
 
-    def recv(self, debug=False):
-        while True:
-            data = self.rsock.recv(MSS)
-            if debug:
-                print(data)
+        self.trans.send(data)
 
-            ip = deserialize_ip(bytearray(data))
-            if ip.src == self.remote_ip and ip.dst == self.local_ip:
-                if ip.proto == 6:
-                    ip.data = deserialize_tcp(ip.data)
-                return ip
+    def recv(self):
+        """
+        Receives a bytearray message from the remote server
 
-    def sendip(self, ip, debug=False):
-        if debug:
-            ip.show()
-
-        self.send(ip.serialize())
-
-    def sendtcp(self, tcp, debug=False):
-        tcp.sport = SRCPORT
-        tcp.dport = DSTPORT
-
-        # serialize once to get right size
-        tcp_slz = tcp.serialize()
-        ip = IP(src=self.local_ip, dst=self.remote_ip, proto=6, len=20 + len(tcp_slz))
-
-        # now compute checksum with new IP packet and send it
-        tcp.compute_checksum(ip)
-        ip.data = tcp.serialize()
-        self.sendip(ip, debug)
-
-    def sendrecvtcp(self, tcp, debug=False):
-        self.sendtcp(tcp, debug)
-        ip = self.recv(debug)
-        if debug:
-            ip.show()
-        return ip
+        return (bytearray) the data received from the server
+        """
+        return self.trans.recv()
 
 
 def rawhttpget(url):
+    """
+    Retrieves the file at the given url over an HTTP connection using raw sockets and writes it to a file
+
+    url (str) - url of the page to be retrieved
+    """
+    # add http if user did not supply
     if not (url.startswith('http://') or url.startswith('https://')):
         url = 'http://' + url
+
+    # get filename to write to, remote IPaddress, and our local IP address
     domain, path = spliturl(url)
-    remote_addr = dnslookup(url)
     outfn = filenamefromurl(url)
+    remote_addr = dnslookup(url)
     local_ip = getlocalip()
+
+    # connect to the remote server
+    s = Socket()
+    s.connect((local_ip, SRCPORT), (remote_addr, DSTPORT))
+
+    # send get request
     getstr = 'GET ' + path + ' HTTP/1.1\r\nHost: ' + domain + '\r\n\r\n'
+    s.send(getstr)
 
-    c = Client()
-    c.connect(local_ip, remote_addr)
-    seq = 0  # random.randint(0, 4294967295)
-    ack = 0
-
-    # 3 way handshake
-    syn = TCP(flags='S',
-              seq=seq,
-              ack=ack)
-    synack = c.sendrecvtcp(syn, DEBUG)
-
-    seq = synack.data.ack
-    ack = synack.data.seq + 1
-
-    ackpkt = TCP(flags='A',
-                 seq=seq,
-                 ack=ack,
-                 data=bytearray(getstr, encoding='ascii'))
-    c.sendrecvtcp(ackpkt, DEBUG)  # ignore first packet received
-    resp = c.recv(DEBUG)
-    tcpresp = resp.data
-
-    # for when I inevitably forget this
-    # iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
-    if tcpresp.flags == 'R':
-        sys.exit('Received reset after ACK in 3 way handshake. Maybe you forgot to edit iptables?')
-
-    # 3 way handshake complete. open file for writing
     fptr = open(outfn, 'w')
 
-    # now keep receiving packets until the full url has been received
+    # in a loop, read from the server, then write the HTTP response body to the file
     while True:
-        if tcpresp.data is None:
+        data = s.recv()
+
+        if data is None:
             fptr.close()
             break
 
-        # only update ACK number when the packet is what we expect
-        # TODO change this when we support sliding window
-        if ack == tcpresp.seq:
-            seq = tcpresp.ack
-            ack = ack + len(tcpresp.data)
+        httpresp = httpcode.HTTPResponse(bytes(data))
+        fptr.write(httpresp.body)
 
-            httpresp = httpcode.HTTPResponse(bytes(tcpresp.data))
-            fptr.write(httpresp.body)
-
-        # ack last received packet
-        ackpkt = TCP(flags='A',
-                     seq=seq,
-                     ack=ack)
-
-        resp = c.sendrecvtcp(ackpkt, DEBUG)
-        tcpresp = resp.data
-
-    # ack stays the same because we only reach this if TCP data was zero
-    seq = tcpresp.ack
-    finpkt = TCP(flags='F',
-                 seq=seq,
-                 ack=ack)
-    resp = c.sendrecvtcp(finpkt, DEBUG)
-    tcpresp = resp.data
-
-    while True:
-        if ack == tcpresp.seq:
-            seq = tcpresp.ack
-
-        # ack last received packet
-        ackpkt = TCP(flags='A',
-                     seq=seq,
-                     ack=ack)
-
-        resp = c.sendrecvtcp(ackpkt, DEBUG)
-        tcpresp = resp.data
-
-        if 'F' in tcpresp.flags:
-            break
+    # gracefully shutdown connection
+    s.shutdown()
 
 
 if __name__ == '__main__':
