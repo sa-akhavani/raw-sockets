@@ -52,6 +52,10 @@ class TransportLayer:
     # used to track when packets have been dropped
     trackinginfo = []
 
+    # list of (packet seq, packet data)
+    # used for handling out of order packets
+    unsentpacketslist = []
+
     def __init__(self, ntwk, sport, dport, debug=False):
         self.ntwk = ntwk
         self.sport = sport
@@ -137,10 +141,41 @@ class TransportLayer:
         self.__track(tcppkt)
         self.ntwk.send(tcppkt, self.debug)
 
+    # append previously received out of order packets if they match next ack
+    def __return_all_valid_packets(self, current_pktdata):
+        should_look_for_more = False
+        while True and len(self.unsentpacketslist) > 0:
+            for i in range(len(self.unsentpacketslist)):
+                pktseq = (self.unsentpacketslist[i])[0]
+                pktdata = (self.unsentpacketslist[i])[1]
+                if pktseq == self.ack:
+                    should_look_for_more = True
+                    current_pktdata += pktdata
+                    if pktdata is not None:
+                        self.ack = self.ack + len(pktdata)
+                    del self.unsentpacketslist[i]
+                    break
+            
+            if not should_look_for_more:
+                break
+        return current_pktdata
+
+    def __append_packet_to_list(self, tcppkt):
+        """ Append out of order packet to the list. Duplicates will not be discarded"""
+        flag = True
+        for i in range(len(self.unsentpacketslist)):
+            pkt = self.unsentpacketslist[i]
+            if tcppkt.seq == pkt[0]:
+                flag = False
+                break
+        if flag:
+            self.unsentpacketslist.append((tcppkt.seq, tcppkt.data))
+
     def recv(self):
         """Receives a packet from the network and returns the TCP payload as a bytearray"""
         success = False
         tcppkt = None
+        exactseq_pktdata = None
 
         signal.signal(signal.SIGALRM, handler)
 
@@ -181,6 +216,10 @@ class TransportLayer:
             if 'A' in tcppkt.flags:
                 self.__check_retransmit(tcppkt)
 
+            # out of order packet are added to list
+            if self.ack < tcppkt.seq :
+                self.__append_packet_to_list(tcppkt)
+
             # TODO modify window size. may need to add a state machine
             if self.ack == tcppkt.seq:
                 success = True
@@ -189,12 +228,13 @@ class TransportLayer:
 
                 if tcppkt.data is not None:
                     self.ack = self.ack + len(tcppkt.data)
+                exactseq_pktdata = tcppkt.data
 
             # ack last received packet
             ackpkt = TCP(flags='A')
             self.__send_packet(ackpkt)
 
-        return tcppkt.data
+        return self.__return_all_valid_packets(exactseq_pktdata)
 
     def __connect(self, data):
         """
