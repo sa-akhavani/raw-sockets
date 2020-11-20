@@ -1,7 +1,6 @@
 import socket
 import sys
 import time
-from enum import Enum
 
 import ip
 
@@ -46,9 +45,12 @@ class NetworkLayer:
         self.connected = True
 
     def settimeout(self, timeo):
+        """
+        Sets the timeout (in seconds) for receiving messages on rsock
+        timeo (float) - timeout in seconds
+        """
         self.timeout = timeo
         self.rsock.settimeout(self.timeout)
-
 
     def send(self, tcp, debug=False):
         """
