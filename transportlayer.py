@@ -5,26 +5,7 @@ import time
 
 from tcp import TCP, deserialize_tcp
 
-"""
-handle out or order packets:
- - track next expected seq
- - when we receive a packet, compare seq with expected
-    - if the are equal, deliver to upper layer. iterate over list, look for packets that arrived out of order. append all
-      the data of all these packets in order and deliver them to the upper layer
-    - if seq > expected, out of order packet. save it to some list ****
-    - if seq < expected, ignore it. potentially duplicate
-    
-track window size:
- - initial window size = 8192 (from scapy)
- - when we receive a packet, decrement window by packet size
- - when we send an ack, add packet size back to the window
-
-detect packets with seq outside of window:
- - when we receive a packet, if seq > window, ignore it
-
-congestion window management:
- - advertised window = min(cwnd, self.window)
-"""
+PACKETSIZE = 1024  # estimated average size of a packet. used so that we can use a packet-based congestion window
 
 
 def handler(signum, frame):
@@ -44,6 +25,7 @@ class TransportLayer:
     ack = 0  # initial ack
 
     window = 8192
+    advert_wnd = 8192  # just a guess for what the receiver's will be
     cwnd = 1
 
     timeout = 60  # timeout
@@ -68,13 +50,19 @@ class TransportLayer:
 
         tcp (bytearray) - the data to send over the network
         """
-        # first data will be delivered as the final step in the 3 way handshake
-        if not self.established:
-            self.__connect(data)
-            self.established = True
-        else:
-            tcppkt = TCP(data=data)
-            self.__send_packet(tcppkt)
+        sentdata = 0
+        while sentdata < len(data):
+            effdata = data[sentdata:min(self.advert_wnd, self.cwnd * PACKETSIZE)]
+            # first data will be delivered as the final step in the 3 way handshake
+            if not self.established:
+                self.__connect(effdata)
+                self.established = True
+            else:
+                tcppkt = TCP(data=effdata)
+                self.__send_packet(tcppkt)
+
+            self.seq += len(data)
+            sentdata += len(data)
 
     def __track(self, tcppkt):
         """Tracks the given packet by storing the ACK we expect to receive for it, the time at which we sent it, and the
@@ -112,6 +100,7 @@ class TransportLayer:
                 self.cwnd = 1
                 rmvidx.append(i)
                 self.__send_packet(pktinfo[2])
+
             elif tcppkt is not None and pktinfo[0] == tcppkt.ack:
                 # successfully acked -- increment cwnd and remove tracking info
                 self.cwnd = min(self.cwnd + 1, 1000)
@@ -214,16 +203,16 @@ class TransportLayer:
             if 'F' in tcppkt.flags:
                 return tcppkt.data
 
+            self.advert_wnd = tcppkt.window
+
             # handle ack. may have to retransmit some packets
             if 'A' in tcppkt.flags:
                 self.__check_retransmit(tcppkt)
 
             # out of order packet are added to list
-            if self.ack < tcppkt.seq:
+            if self.ack < tcppkt.seq <= self.ack + self.window:
                 self.__append_packet_to_list(tcppkt)
-
-            # TODO modify window size. may need to add a state machine
-            if self.ack == tcppkt.seq:
+            elif self.ack == tcppkt.seq:
                 success = True
 
                 self.seq = tcppkt.ack

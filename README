@@ -1,0 +1,66 @@
+We started the project by building a skeleton of what the main body of rawhttpget would look like with raw sockets.
+After setting up the raw sockets, we used the scapy library to craft and decode packets involved in the 3-way handshake
+and all the HTTP responses we received after sending our GET request.
+
+Once this code was working, we built our own TCP and IP packet serializers and deserializers that allowed for us to set
+any header field of TCP and IPv4 packets with ease. Once those were completed and tested, we substituted all scapy
+packets in the code with our own and ensured that the code still worked.
+
+Then, we began working on the IP and TCP implementations. We created a NetworkLayer and TransportLayer class to keep
+all the functionality in each layer separate. The TransportLayer class has a NetworkLayer class that it gives TCP
+packets to and retrieves IP packets from.
+
+The NetworkLayer class has all the raw sockets and deserializes each incoming packet to an IP packet object. It performs
+validity checks on it, handles fragmentation if necessary, then returns it to the TransportLayer's recv function.
+
+In terms of IP functionality implemented, our deserializer handled the following:
+ - checking the correct version
+ - checking the correct header length
+ - checking the correct total length
+ - checking the correct protocol identifier
+ - computing checksums
+
+Our NetworkLayer class handled the following:
+ - verifying checksums
+ - verifying the IP headers from the remote server
+ - fragmentation
+
+In the TransportLayer class, we decode the IP packet's body to a TCP packet, check the validity of the packet, and then
+handle it based on its flags, seq, ack, and window. We then send an ACK back to the server with the ack field set to the
+last byte we received in order. If we received a packet with a sequence number out of order, we track it until we
+receive an in-order packet. When we receive an in-order packet, we deliver all in-order bytes we've received so far as
+one bytearray to the upper layer.
+
+When sending data, the TransportLayer class uses a simple congestion control scheme. Our congestion window (cwnd)
+operates in units of packets rather than bytes. We arbitrarily assume that a packet is at most 2048 bytes. the When
+someone calls the send() function of the TransportLayer class, we compute an effective window (eff_wnd) as the minimum
+of the last window advertised by the server and cwnd * 2048. If the amount of data to send is greater than eff_wnd, we
+only send eff_wnd bytes. If we receive an ACK, then we increment cwnd, recompute eff_wnd, and send the next eff_wnd
+bytes. cwnd is incremented up to 1000, and is reset to 1 when a packet is detected as dropped.
+
+The TCP functionality our TransportLayer class supports is:
+ - completing the 3-way handshake
+ - computing and verifying checksums
+ - correctly handling connection teardown by sending a FIN, then ACKing all incoming packets until a FIN is received
+ - correctly handle sequence and acknowledgement numbers
+ - advertising a window of 8192
+ - retransmitting packets if they are not ACKed within one minute
+ - receiving out-of-order packets and delivering them in-order to the caller
+ - identifying and discarding duplicate packets and packets whose seq numbers are outside of our advertised window
+ - implementing a simple congestion window
+ - ensures that all incoming packets have in-order sequence numbers.
+ - a 3-minute timeout for receiving any data from the remote server
+
+Our final rawhttpget implementation uses a TransportLayer object to send and receive bytes over the network. We used
+our old HTTP Response parser to extract the bodies of the HTTP responses and write them to a file.
+
+We had to modify our HTTP Response parser slightly to support chunked encoding and Accept-Ranges = "bytes". Whereas our
+old implementation operated on ascii strings and assumed that the whole response would be available at once, our new
+implementation uses a state machine across multiple parses and operates on byte objects so that data is not mangled by
+our attempts to decode response bodies as utf-8.
+
+Anthony wrote the initial rawhttpget skeleton using scapy while Ali built the TCP/IP builders, serializers, and checksum
+computers. Then, Anthony designed the NetworkLayer and TransportLayer objects and integrated them into rawhttpget. We
+worked together on implementing TCP and IP. After an initial meeting where we sketched out how each feature would work
+in pseudocode. We went off on our own and implemented whatever features we were interested, syncing up periodically to
+discuss new problems and to ensure we weren't working on the same parts.
