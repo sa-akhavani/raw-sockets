@@ -246,3 +246,5 @@ class TransportLayer:
 
             if 'F' in tcpresp.flags:
                 break
+
+        self.ntwk.shutdown()

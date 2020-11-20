@@ -5,7 +5,15 @@ import time
 import ip
 
 """
-IP fragmentation assembly
+IP fragmentation assembly:
+    upon receiving a packet, check if either flags == 'M' or frag > 0
+    if true, check if resources allocated for reassembly
+        if no resources allocate resources for fragmentation reassembly : 
+            map id -> (buffer holding full packet, set of received frag offsets, total unique data received, whether we've received the final packet)
+        copy frag data into buffer starting at index pkt.frag
+        if flags != 'M': set final=true
+         
+    
 """
 
 
@@ -43,6 +51,10 @@ class NetworkLayer:
         self.remote_addr = remoteaddrpair[0]
 
         self.connected = True
+
+    def shutdown(self):
+        self.ssock.close()
+        self.rsock.close()
 
     def settimeout(self, timeo):
         """
@@ -120,6 +132,10 @@ class NetworkLayer:
             if debug:
                 print('received')
                 ip_pkt.show()
+
+            if ip_pkt.flags == 'M' or ip_pkt.frag > 0:
+                # TODO handle fragmentation
+                pass
 
             # only return packets with the correct src/dst addresses and which have a valid checksum
             if ip_pkt.src == self.remote_addr and ip_pkt.dst == self.local_addr:
