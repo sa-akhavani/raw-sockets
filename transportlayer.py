@@ -141,8 +141,8 @@ class TransportLayer:
         self.__track(tcppkt)
         self.ntwk.send(tcppkt, self.debug)
 
-    # append previously received out of order packets if they match next ack
     def __return_all_valid_packets(self, current_pktdata):
+        """append previously received out of order packets if they match next ack"""
         should_look_for_more = False
         while True and len(self.unsentpacketslist) > 0:
             for i in range(len(self.unsentpacketslist)):
@@ -188,17 +188,20 @@ class TransportLayer:
             try:
                 ippkt = self.ntwk.recv(self.debug)
             except TimeoutError:
+                print('timeout')
                 self.__check_retransmit(None)
                 continue
 
             signal.alarm(0)  # reset alarm
             if ippkt.proto != 6:
+                print('wrong ip protocol')
                 continue
 
             # extract TCP packet from it
             tcppkt = deserialize_tcp(ippkt.data)
 
             if tcppkt.sport != self.dport or tcppkt.dport != self.sport:
+                print('wrong ports received by tcp')
                 continue
 
             if self.debug:
@@ -217,7 +220,7 @@ class TransportLayer:
                 self.__check_retransmit(tcppkt)
 
             # out of order packet are added to list
-            if self.ack < tcppkt.seq :
+            if self.ack < tcppkt.seq:
                 self.__append_packet_to_list(tcppkt)
 
             # TODO modify window size. may need to add a state machine
@@ -228,6 +231,7 @@ class TransportLayer:
 
                 if tcppkt.data is not None:
                     self.ack = self.ack + len(tcppkt.data)
+
                 exactseq_pktdata = tcppkt.data
 
             # ack last received packet
@@ -251,13 +255,24 @@ class TransportLayer:
         synack_ip = self.ntwk.recv(self.debug)
         synack = deserialize_tcp(synack_ip.data)
 
+        if self.debug:
+            synack.show()
+
         self.seq = synack.ack
         self.ack = synack.seq + 1
 
         ackpkt = TCP(flags='A',
                      data=data)
         self.__send_packet(ackpkt)
-        self.ntwk.recv(self.debug)   # ignore first packet received
+        resp = self.ntwk.recv(self.debug)   # ignore first packet received
+        tcpresp = deserialize_tcp(resp.data)
+
+        if self.debug:
+            tcpresp.show()
+
+        # alert if reset sent back. Likely means iptables weren't set
+        if 'R' in tcpresp.flags:
+            sys.exit('Received reset after ACK in 3 way handshake. Maybe you forgot to edit iptables?')
 
     def shutdown(self):
         """

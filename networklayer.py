@@ -3,18 +3,7 @@ import sys
 import time
 
 import ip
-
-"""
-IP fragmentation assembly:
-    upon receiving a packet, check if either flags == 'M' or frag > 0
-    if true, check if resources allocated for reassembly
-        if no resources allocate resources for fragmentation reassembly : 
-            map id -> (buffer holding full packet, set of received frag offsets, total unique data received, whether we've received the final packet)
-        copy frag data into buffer starting at index pkt.frag
-        if flags != 'M': set final=true
-         
-    
-"""
+import io
 
 
 class NetworkLayer:
@@ -29,6 +18,8 @@ class NetworkLayer:
     connected = False  # whether the raw sockets have been created and bound/connected
     firstrecv = True  # whether this is the first call to recv since we last received a packet
     recvstarttime = None
+
+    fraginfo = dict()  # maps packet id -> info needed to manage fragmentation
 
     MSS = 65535
     timeout = 180
@@ -95,6 +86,63 @@ class NetworkLayer:
         calculated_checksum = ip_pkt.chksum
         return given_checksum == calculated_checksum
 
+    class FragObject:
+        """Class used to store fragmentation metadata"""
+        def __init__(self, buffer, seenoffsets, bytesrecvd, totalbytes, seenfinal, firstpkt):
+            self.buffer = buffer  # buffer containing reassembled data
+            self.seenoffsets = seenoffsets  # set of all offsets we've seen
+            self.bytesrecvd = bytesrecvd  # total unique bytes received
+            self.totalbytes = totalbytes  # total bytes in the entire datagram payload
+            self.seenfinal = seenfinal  # whether we've seen the final packet
+            self.firstpkt = firstpkt  # the first packet we received (store so we can make a new IP packet)
+
+    def __handle_fragment(self, ip_pkt, debug=False):
+        """
+        Handles a fragment of an IP datagram.
+
+        ip_pkt (IP) - IP packet that is part of a fragment
+        debug (bool) - whether to print debug information
+
+        return - the fully reassembled IP packet or None if there are still fragments to be received
+        """
+
+        # create new entry
+        if ip_pkt.idnum not in self.fraginfo:
+            self.fraginfo[ip_pkt.idnum] = self.FragObject(io.BytesIO(), {}, 0, -1, False, ip_pkt)
+
+        # check for a reassembled packet that is too big
+        if 20 + ip_pkt.frag * 8 + len(ip_pkt.data) > 65535:
+            print('IP fragmentation overflow attempt')
+            return None
+
+        # copy data into buffer if this is not a duplicate
+        entry = self.fraginfo[ip_pkt.idnum]
+        if ip_pkt.frag not in entry.seenoffsets:
+            entry.buffer.seek(ip_pkt.frag * 8)
+            entry.buffer.write(ip_pkt.data)
+            entry.bytesrecvd += len(ip_pkt.data)
+
+        # if this is the last fragment, then we now know the total size of the buffer
+        if ip_pkt.flags != 'M':
+            entry.seenfinal = True
+            entry.totalbytes = ip_pkt.frag * 8 + len(ip_pkt.data)
+
+        # if we have copied all the byte in the payload, construct a new IP datagram and deliver it to the upper layer
+        if entry.seenfinal and entry.bytesrecvd == entry.totalbytes:
+            outpkt = ip.IP(version=4, ihl=5, tos=entry.firstpkt.tos, len=20 + entry.totalbytes, id=entry.firstpkt.idnum,
+                           flags='', frag=0, ttl=entry.firstpkt.ttl, proto=entry.firstpkt.proto,
+                           src=entry.firstpkt.src, dst=entry.firstpkt.dst,
+                           data=bytearray(entry.buffer.getvalue()))
+
+            if debug:
+                print('reassembled datagram')
+                outpkt.show()
+
+            return outpkt
+
+        # None signals that the packet is not fully assembled yet
+        return None
+
     def recv(self, debug=False):
         """
         Receives data from the receive socket and deserializes it into an IP packet.
@@ -109,8 +157,8 @@ class NetworkLayer:
         # On subsequent calls, compare the current time to the time since we last received a packet.
         #
         # This check is necessary because the transport layer raises an exception if a packet is not received after a
-        # minute, which will interrupt this function. Since the network layer times out after 3 minutes, we must track
-        # the time across multiple function calls.
+        # minute, which will interrupt this function. Since the network layer must time out after 3 minutes, we must
+        # track the time across multiple function calls.
         ts = time.time()
         if self.firstrecv:
             self.recvstarttime = ts
@@ -133,13 +181,20 @@ class NetworkLayer:
                 print('received')
                 ip_pkt.show()
 
-            if ip_pkt.flags == 'M' or ip_pkt.frag > 0:
-                # TODO handle fragmentation
-                pass
-
             # only return packets with the correct src/dst addresses and which have a valid checksum
             if ip_pkt.src == self.remote_addr and ip_pkt.dst == self.local_addr:
+
+                # reset timer flag
                 self.firstrecv = True
 
                 if self.__valid_checksum(ip_pkt):
+                    # check for fragmentation
+                    if ip_pkt.flags == 'M' or ip_pkt.frag > 0:
+                        maybepkt = self.__handle_fragment(ip_pkt, debug)
+                        if maybepkt is not None:
+                            return maybepkt
+                        else:
+                            continue
                     return ip_pkt
+
+            print('incorrect addresses or checksum')
