@@ -75,7 +75,8 @@ def rawhttpget(url):
     getstr = 'GET ' + path + ' HTTP/1.1\r\nHost: ' + domain + '\r\n\r\n'
     s.send(getstr)
 
-    fptr = open(outfn, 'w')
+    fptr = None
+    firstmsg = True
 
     # in a loop, read from the server, then write the HTTP response body to the file
     while True:
@@ -86,6 +87,13 @@ def rawhttpget(url):
             break
 
         httpresp = httpcode.HTTPResponse(bytes(data))
+        if firstmsg:
+            firstmsg = False
+            if httpresp.isbytes:
+                fptr = open(outfn, 'wb')
+            else:
+                fptr = open(outfn, 'w')
+
         fptr.write(httpresp.body)
 
     # gracefully shutdown connection
