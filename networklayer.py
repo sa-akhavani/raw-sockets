@@ -96,7 +96,7 @@ class NetworkLayer:
             self.seenfinal = seenfinal  # whether we've seen the final packet
             self.firstpkt = firstpkt  # the first packet we received (store so we can make a new IP packet)
 
-    def __handle_fragment(self, ip_pkt, debug=False):
+    def handle_fragment(self, ip_pkt, debug=False):
         """
         Handles a fragment of an IP datagram.
 
@@ -190,7 +190,7 @@ class NetworkLayer:
                 if self.__valid_checksum(ip_pkt):
                     # check for fragmentation
                     if ip_pkt.flags == 'M' or ip_pkt.frag > 0:
-                        maybepkt = self.__handle_fragment(ip_pkt, debug)
+                        maybepkt = self.handle_fragment(ip_pkt, debug)
                         if maybepkt is not None:
                             return maybepkt
                         else:

@@ -50,33 +50,33 @@ class NetworkTest(unittest.TestCase):
         ntwk.settimeout(1)
         ntwk.recv()
 
-    def testfrag2(self):
-        server = Server()
+    def testfraginorder(self):
         ntwk = networklayer.NetworkLayer()
         localip = '127.0.0.1'  #utils.getlocalip()
-        server.bind((localip, 12345))
-        ntwk.connect(localaddrpair=(localip, 54321), remoteaddrpair=(localip, 12345))
-        ntwk.settimeout(5)
-        server.connect((localip, 54321))
 
-        try:
-            frag1 = ip.IP(src=localip, dst=localip, proto=6, len=30, flags='M', frag=0,
-                          data=bytearray('aaaaaaaaaa', encoding='utf-8'))
-            frag2 = ip.IP(src=localip, dst=localip, proto=6, len=30, flags='', frag=10,
-                          data=bytearray('bbbbbbbbbb', encoding='utf-8'))
+        frag1 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='M', frag=0,
+                      data=bytearray('aaaaaaaa', encoding='utf-8'))
+        frag2 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='', frag=1,
+                      data=bytearray('bbbbbbbb', encoding='utf-8'))
 
-            x = threading.Thread(target=ntwkthread, args=(ntwk,))
-            x.start()
+        self.assertIsNone(ntwk.handle_fragment(frag1))
+        reass = ntwk.handle_fragment(frag2)
+        self.assertIsNotNone(reass)
+        self.assertEqual(reass.data, bytearray('aaaaaaaabbbbbbbb', encoding='utf-8'))
 
-            server.send(frag1)
-            server.send(frag2)
+    def testfragoutoforder(self):
+        ntwk = networklayer.NetworkLayer()
+        localip = '127.0.0.1'  #utils.getlocalip()
 
-            x.join()
-        finally:
-            pass
+        frag1 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='M', frag=0,
+                      data=bytearray('aaaaaaaa', encoding='utf-8'))
+        frag2 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='', frag=1,
+                      data=bytearray('bbbbbbbb', encoding='utf-8'))
 
-        server.shutdown()
-        ntwk.shutdown()
+        self.assertIsNone(ntwk.handle_fragment(frag2))
+        reass = ntwk.handle_fragment(frag1)
+        self.assertIsNotNone(reass)
+        self.assertEqual(reass.data, bytearray('aaaaaaaabbbbbbbb', encoding='utf-8'))
 
 
 if __name__ == '__main__':
