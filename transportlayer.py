@@ -174,7 +174,6 @@ class TransportLayer:
     def recv(self):
         """Receives a packet from the network and returns the TCP payload as a bytearray"""
         success = False
-        tcppkt = None
         exactseq_pktdata = None
 
         signal.signal(signal.SIGALRM, handler)

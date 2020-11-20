@@ -129,6 +129,7 @@ class NetworkLayer:
 
         # if we have copied all the byte in the payload, construct a new IP datagram and deliver it to the upper layer
         if entry.seenfinal and entry.bytesrecvd == entry.totalbytes:
+            del self.fraginfo[ip_pkt.idnum]
             outpkt = ip.IP(version=4, ihl=5, tos=entry.firstpkt.tos, len=20 + entry.totalbytes, id=entry.firstpkt.idnum,
                            flags='', frag=0, ttl=entry.firstpkt.ttl, proto=entry.firstpkt.proto,
                            src=entry.firstpkt.src, dst=entry.firstpkt.dst,

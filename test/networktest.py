@@ -52,7 +52,7 @@ class NetworkTest(unittest.TestCase):
 
     def testfraginorder(self):
         ntwk = networklayer.NetworkLayer()
-        localip = '127.0.0.1'  #utils.getlocalip()
+        localip = '127.0.0.1'
 
         frag1 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='M', frag=0,
                       data=bytearray('aaaaaaaa', encoding='utf-8'))
@@ -66,7 +66,7 @@ class NetworkTest(unittest.TestCase):
 
     def testfragoutoforder(self):
         ntwk = networklayer.NetworkLayer()
-        localip = '127.0.0.1'  #utils.getlocalip()
+        localip = '127.0.0.1'
 
         frag1 = ip.IP(src=localip, dst=localip, proto=6, len=28, flags='M', frag=0,
                       data=bytearray('aaaaaaaa', encoding='utf-8'))
